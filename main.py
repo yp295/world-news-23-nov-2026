@@ -1,53 +1,75 @@
-"""Entry generator: World News 23 November 2026 in one image.
+"""Entry program for the make.fun bounty "Sum up 23 November's world news
+in one image".
 
-Reads the bundled newspaper image (news.png, stored next to this file)
-and writes it unchanged to /output/entry.png.
+The job of this program is deliberately tiny. The finished newspaper
+picture already exists next to this file as news.png; this program only
+carries an exact copy of it to /output/entry.png, which is where the
+judges look for the entry.
 
-Standard library only. No network access, no randomness, no clock:
-the same input bytes always produce the same output bytes.
+To make sure the picture that arrives is the picture that was meant to
+arrive, the program checks its SHA-256 fingerprint twice: once before
+copying, once after. If either check disagrees with the fingerprint
+recorded below, the program stops with an error and writes nothing.
+Running the program twice therefore always produces the same bytes.
 """
+
+from __future__ import annotations
 
 import hashlib
 import shutil
 import sys
 from pathlib import Path
 
-HERE = Path(__file__).resolve().parent
-SOURCE = HERE / "news.png"
-TARGET = Path("/output/entry.png")
+# SHA-256 of the finished 1024x1024 newspaper image, news.png.
+EXPECTED_SHA256 = "d42271cd48a1ee8eb5de7ca9f1a6925763daa2271b6bf113e4f83257b2b88d31"
 
-# sha256 of the bundled image, recorded when the entry was built.
-# The program refuses to copy if the bundled file no longer matches.
-EXPECTED_SHA256 = (
-    "d42271cd48a1ee8eb5de7ca9f1a6925763daa2271b6bf113e4f83257b2b88d31"
-)
+SOURCE_NAME = "news.png"
+DESTINATION = Path("/output/entry.png")
 
 
-def sha256_of(path: Path) -> str:
+def fingerprint(path: Path) -> str:
+    """Return the SHA-256 hex digest of the file at *path*."""
     digest = hashlib.sha256()
     with path.open("rb") as handle:
-        for chunk in iter(lambda: handle.read(1 << 16), b""):
-            digest.update(chunk)
+        while True:
+            block = handle.read(1024 * 1024)
+            if not block:
+                break
+            digest.update(block)
     return digest.hexdigest()
 
 
 def main() -> int:
-    if not SOURCE.is_file():
-        print(f"bundled image not found: {SOURCE}", file=sys.stderr)
+    source = Path(__file__).resolve().parent / SOURCE_NAME
+
+    if not source.is_file():
+        print(f"missing source image: {source}", file=sys.stderr)
         return 1
-    if sha256_of(SOURCE) != EXPECTED_SHA256:
-        print("bundled image hash mismatch, refusing to copy", file=sys.stderr)
+
+    before = fingerprint(source)
+    if before != EXPECTED_SHA256:
+        print(
+            "source image fingerprint mismatch:\n"
+            f"  expected {EXPECTED_SHA256}\n"
+            f"  got      {before}",
+            file=sys.stderr,
+        )
         return 1
-    TARGET.parent.mkdir(parents=True, exist_ok=True)
-    shutil.copyfile(SOURCE, TARGET)
-    if sha256_of(TARGET) != EXPECTED_SHA256:
-        print("output hash mismatch", file=sys.stderr)
+
+    DESTINATION.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copyfile(source, DESTINATION)
+
+    after = fingerprint(DESTINATION)
+    if after != EXPECTED_SHA256:
+        print(
+            "copied image fingerprint mismatch:\n"
+            f"  expected {EXPECTED_SHA256}\n"
+            f"  got      {after}",
+            file=sys.stderr,
+        )
         return 1
-    print(
-        f"wrote {TARGET} "
-        f"({TARGET.stat().st_size} bytes, "
-        f"sha256 {EXPECTED_SHA256[:12]}...)"
-    )
+
+    print(f"entry written to {DESTINATION} (sha256 {after})")
     return 0
 
 
